@@ -19,6 +19,7 @@
 
 #include <cuda_runtime_api.h>
 
+#include <chrono>
 #include <condition_variable>
 #include <fstream>
 #include <future>
@@ -157,6 +158,7 @@ class Service : public vsdk::MLModelService, public vsdk::Stoppable, public vsdk
 
     std::shared_ptr<named_tensor_views> infer(const named_tensor_views& inputs,
                                               const vsdk::AttributeMap& extra) final {
+		auto outer_start = std::chrono::high_resolution_clock::now();
         const auto state = lease_state_();
 
         auto inference_request = get_inference_request_(state);
@@ -192,11 +194,15 @@ class Service : public vsdk::MLModelService, public vsdk::Stoppable, public vsdk
             },
             &inference_promise);
 
+		auto inner_start = std::chrono::high_resolution_clock::now();
         cxxapi::call(cxxapi::the_shim.ServerInferAsync)(
             state->server.get(), inference_request.release(), nullptr);
 
         auto result2 = inference_future.get();
         auto inference_response = cxxapi::take_unique(result2);
+		auto inner_stop = std::chrono::high_resolution_clock::now();
+		auto inner_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(inner_stop - inner_start);
+		std::cout << "Alan found the inner section took " << inner_duration.count() << " ns\n" << std::flush;
 
         auto error = cxxapi::the_shim.InferenceResponseError(inference_response.get());
         if (error) {
@@ -305,6 +311,11 @@ class Service : public vsdk::MLModelService, public vsdk::Stoppable, public vsdk
         // inference_result object is destroyed, we will return
         // the response to the pool.
         auto* const ntvs = &inference_result->ntvs;
+
+		auto outer_stop = std::chrono::high_resolution_clock::now();
+		auto outer_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(outer_stop - outer_start);
+		std::cout << "Alan found the outer section took " << outer_duration.count() << " ns\n" << std::flush;
+
         return {std::move(inference_result), ntvs};
     }
 
